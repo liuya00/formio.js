@@ -40,6 +40,7 @@ export default class Wizard extends Webform {
     this.subWizards = [];
     this.allPages = [];
     this.lastPromise = NativePromise.resolve();
+    this.prevPageState = null;
   }
 
   isLastPage() {
@@ -111,6 +112,25 @@ export default class Wizard extends Webform {
       }
     });
 
+    this.on('renderRows', (newPage) => {
+      this.currentPage.components = [newPage];
+      this.redraw();
+    });
+
+    this.on('onSaveAddPage', (addWizardPage) => {
+      const index = _.findIndex(this.prevPageState, (comp) => comp.type === 'addWizardPage' && comp.id === addWizardPage.id);
+
+      if (index !== -1) {
+        this.prevPageState[index] = addWizardPage;
+        this.currentPage.components = this.prevPageState;
+
+        return this.redraw();
+      }
+      this.currentPage.components = this.prevPageState;
+
+      return this.redraw();
+    });
+
     return onReady;
   }
 
@@ -129,10 +149,10 @@ export default class Wizard extends Webform {
   get buttons() {
     const buttons = {};
     [
-      { name: 'cancel',    method: 'cancel' },
-      { name: 'previous',  method: 'prevPage' },
-      { name: 'next',      method: 'nextPage' },
-      { name: 'submit',    method: 'submit' }
+      { name: 'cancel', method: 'cancel' },
+      { name: 'previous', method: 'prevPage' },
+      { name: 'next', method: 'nextPage' },
+      { name: 'submit', method: 'submit' }
     ].forEach((button) => {
       if (this.hasButton(button.name)) {
         buttons[button.name] = button;
@@ -297,6 +317,9 @@ export default class Wizard extends Webform {
           event.preventDefault();
           return this.setPage(index).then(() => {
             this.emit('wizardPageSelected', this.pages[index], index);
+            if (this.hasAddWizard()) {
+              this.emit('setChangingMode');
+            }
           });
         });
       });
@@ -539,6 +562,10 @@ export default class Wizard extends Webform {
       return this.beforePage(true).then(() => {
         return this.setPage(this.getNextPage()).then(() => {
           this.emit('nextPage', { page: this.page, submission: this.submission });
+          if (this.hasAddWizard()) {
+            this.prevPageState = _.clone(this.currentPage.components);
+            this.emit('setChangingMode');
+          }
         });
       });
     }
@@ -641,17 +668,19 @@ export default class Wizard extends Webform {
       next = this.options.buttonSettings.showNext
     } = _.get(this.currentPage, 'component.buttonSettings', {});
 
-    switch (name) {
-      case 'previous':
-        return previous && (this.getPreviousPage() > -1);
-      case 'next':
-        return next && (nextPage !== null) && (nextPage !== -1);
-      case 'cancel':
-        return cancel;
-      case 'submit':
-        return submit && !this.options.readOnly && ((nextPage === null) || (this.page === (this.pages.length - 1)));
-      default:
-        return true;
+    if (this.options.readOnly || !this.hasAddWizard()) {
+      switch (name) {
+        case 'previous':
+          return previous && (this.getPreviousPage() > -1);
+        case 'next':
+          return next && (nextPage !== null) && (nextPage !== -1);
+        case 'cancel':
+          return cancel;
+        case 'submit':
+          return submit && !this.options.readOnly && ((nextPage === null) || (this.page === (this.pages.length - 1)));
+        default:
+          return true;
+      }
     }
   }
 
@@ -735,6 +764,17 @@ export default class Wizard extends Webform {
       });
     }
     return super.focusOnComponent(key);
+  }
+
+  hasAddWizard() {
+    let hasAddWizard = false;
+    eachComponent(this.currentPage.components, (comp) => {
+      if (comp.type === 'addWizardPage') {
+        hasAddWizard = true;
+      }
+    }, true);
+
+    return hasAddWizard;
   }
 }
 
